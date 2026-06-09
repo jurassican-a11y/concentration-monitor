@@ -1,0 +1,42 @@
+name: 每日更新集中度数据
+
+on:
+  schedule:
+    # 每个工作日 UTC 07:35 = 北京时间 15:35（收盘后）
+    - cron: '35 7 * * 1-5'
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 允许推送到仓库
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install akshare tushare pandas
+
+      - name: 运行数据更新脚本
+        env:
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+        run: python scripts/update_data.py
+
+      - name: 生成 HTML 页面
+        run: python scripts/build_html.py
+
+      - name: 提交并推送更新
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data.json docs/index.html
+          git diff --cached --quiet || git commit -m "📊 自动更新：$(date '+%Y-%m-%d')"
+          git push
