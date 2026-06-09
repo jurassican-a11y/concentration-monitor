@@ -56,22 +56,41 @@ def is_trade_day(date_str: str) -> bool:
         return d.weekday() < 5
 
 
-# ── 今日数据（AKShare 实时，免费）─────────────────────────
-def fetch_today_akshare() -> float | None:
+# ── 今日数据（Tushare，支持境外IP）────────────────────────
+def fetch_today_tushare(date_str: str) -> float | None:
+    """用Tushare daily接口获取指定日期集中度，支持GitHub Actions境外服务器"""
+    if not TUSHARE_TOKEN:
+        print("⚠️  未设置 TUSHARE_TOKEN")
+        return None
     try:
-        import akshare as ak
-        df = ak.stock_zh_a_spot_em()
-        df = df[df["成交额"] > 0].copy()
-        if df.empty:
+        import tushare as ts
+        pro = ts.pro_api(TUSHARE_TOKEN)
+        # 取当日及前后1天，防止节假日等边界问题
+        d = datetime.strptime(date_str, "%Y-%m-%d")
+        start = (d - timedelta(days=1)).strftime("%Y%m%d")
+        end   = d.strftime("%Y%m%d")
+        df = pro.daily(ts_code="", start_date=start, end_date=end,
+                       fields="ts_code,trade_date,amount")
+        if df is None or df.empty:
+            print(f"  Tushare 返回空数据（{date_str} 可能非交易日）")
             return None
-        total = df["成交额"].sum()
+        # 只取目标日期
+        target = date_str.replace("-", "")
+        df = df[df["trade_date"] == target]
+        if df.empty:
+            print(f"  Tushare 无 {date_str} 数据（非交易日或数据延迟）")
+            return None
+        df = df[df["amount"] > 0]
+        total = df["amount"].sum()
+        if total == 0:
+            return None
         n_top = max(1, int(len(df) * TOP_PCT))
-        top_sum = df["成交额"].nlargest(n_top).sum()
+        top_sum = df["amount"].nlargest(n_top).sum()
         val = round(top_sum / total, 6)
-        print(f"  AKShare 今日集中度: {val:.2%}")
+        print(f"  Tushare 今日集中度: {val:.2%}（{len(df)} 只个股）")
         return val
     except Exception as e:
-        print(f"  AKShare 失败: {e}")
+        print(f"  Tushare 失败: {e}")
         return None
 
 
@@ -141,7 +160,7 @@ def main():
             data["records"] = records
             # 补上今日
             if today not in {r["date"] for r in records}:
-                val = fetch_today_akshare()
+                val = fetch_today_tushare(today)
                 if val:
                     data["records"].append({"date": today, "value": val, "n_stocks": 0})
         save_data(data)
@@ -159,9 +178,9 @@ def main():
         return
 
     print(f"正在获取 {today} 数据...")
-    val = fetch_today_akshare()
+    val = fetch_today_tushare(today)
     if val is None:
-        print("数据获取失败，可能市场未收盘，稍后重试")
+        print("数据获取失败，可能市场未收盘或Tushare数据延迟，稍后重试")
         return
 
     # 补充近期遗漏的交易日（最多回溯5天）
@@ -169,8 +188,10 @@ def main():
         past = (datetime.today() - timedelta(days=i)).strftime("%Y-%m-%d")
         if past not in existing_dates and is_trade_day(past):
             print(f"  检测到遗漏日期 {past}，尝试补充...")
-            # 此处仍用akshare，历史数据精度略低但够用
-            # 生产环境可改为 tushare 补充
+            past_val = fetch_today_tushare(past)
+            if past_val:
+                data["records"].append({"date": past, "value": past_val, "n_stocks": 0})
+                print(f"  已补充 {past}: {past_val:.2%}")
 
     data["records"].append({
         "date": today,
