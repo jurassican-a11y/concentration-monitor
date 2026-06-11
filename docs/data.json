@@ -20294,9 +20294,14 @@
       "date": "2026-06-10",
       "value": 0.484772,
       "n_stocks": 0
+    },
+    {
+      "date": "2026-06-11",
+      "value": 0.489647,
+      "n_stocks": 0
     }
   ],
-  "updated_at": "2026-06-10 18:13",
+  "updated_at": "2026-06-11 18:37",
   "warning_line": 0.45,
   "key_events": [
     {
