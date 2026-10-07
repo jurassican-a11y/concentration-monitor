@@ -4,10 +4,30 @@ build_html.py
 """
 
 import json
+from datetime import date
+from html import escape
 from pathlib import Path
 
 DATA_PATH = Path("docs/data.json")
 HTML_PATH = Path("docs/index.html")
+
+
+def event_metrics(records, event, warning):
+    """First threshold observation in the event year, through the event date."""
+    event_date = date.fromisoformat(event["date"])
+    year_start = f"{event_date.year}-01-01"
+    window = sorted(
+        (r for r in records if year_start <= r["date"] <= event["date"]),
+        key=lambda r: r["date"],
+    )
+    first = next((r for r in window if r["value"] >= warning), None)
+    at_top = next((r for r in window if r["date"] == event["date"]), None)
+    return {
+        **event,
+        "value": at_top["value"] if at_top else None,
+        "warning_start": first["date"] if first else None,
+        "days_to_top": (event_date - date.fromisoformat(first["date"])).days if first else None,
+    }
 
 
 def build():
@@ -29,6 +49,26 @@ def build():
     all_vals    = [r["value"] for r in records]
     pct_rank    = sum(v < latest_val for v in all_vals) / len(all_vals)
     above_warn  = latest_val >= warning
+
+    event_cards = []
+    for event in key_events:
+        metric = event_metrics(records, event, warning)
+        value_text = f"{metric['value']:.1%}" if metric["value"] is not None else "当日无数据"
+        if metric["warning_start"] is not None:
+            timing = (
+                f'<div class="ev-duration">达警戒线至顶 <strong>{metric["days_to_top"]} 天</strong></div>'
+                f'<div class="ev-start">首次达线：{metric["warning_start"]}</div>'
+            )
+        else:
+            timing = '<div class="ev-start">当年截至事件日无达线记录</div>'
+        event_cards.append(
+            '<div class="event-card">'
+            f'<div class="ev-date">{escape(event["date"])}</div>'
+            f'<div class="ev-label">{escape(event["label"])}</div>'
+            f'<div class="ev-val">集中度：{value_text}</div>'
+            f'{timing}</div>'
+        )
+    event_cards_html = "\n".join(event_cards)
 
     # 序列化为 JS 数组
     dates_js  = json.dumps([r["date"]  for r in records])
@@ -246,6 +286,10 @@ def build():
     margin-top: 6px;
     font-weight: 600;
   }}
+  .event-card .ev-duration {{ font-size: 0.8rem; margin-top: 12px; color: var(--text); }}
+  .event-card .ev-duration strong {{ color: var(--amber); }}
+  .event-card .ev-start {{ font-size: 0.72rem; margin-top: 6px; color: var(--muted); line-height: 1.6; }}
+  .events-note {{ font-size: 0.75rem; color: var(--muted); line-height: 1.8; }}
 
   /* ── Explainer ── */
   .explainer {{
@@ -356,14 +400,15 @@ def build():
   <section class="events-section">
     <p class="section-eyebrow">历史参照</p>
     <h2 class="section-title">集中度峰值与市场事件</h2>
-    <div class="events-grid" id="events-grid"></div>
+    <p class="events-note">按现有序列，取事件当年首次达到 {warning:.0%} 的日期，计算至事件日的自然日差（起算当天为 0 天）。历史数据来源仍待核查。</p>
+    <div class="events-grid" id="events-grid">{event_cards_html}</div>
   </section>
 
   <!-- ── 说明 ── -->
   <div class="explainer">
     <strong>指标说明：</strong>每个交易日，将全市场个股按成交额从高到低排序，前 5%（约270只）的合计成交额占全市场总成交额的比例，即为本指标。<br>
     <strong>历史警戒线 <span class="warn">45%</span>：</strong>
-    2007年以来，该指标共 5 次突破 45%，分别对应2007年牛市顶部、2009年反弹高点、2015年杠杆牛崩盘前、2018年初价值抱团瓦解、2021年初"茅指数"抱团崩盘——每次突破后均出现明显风格切换或市场回撤。<br>
+    图中标注 6 个市场事件：2007年牛市顶部、2009年反弹高点、2015年杠杆牛顶部、2018年初价值抱团、2021年初"茅指数"抱团顶，以及2026年7月1日科创AI硬件顶。事件用于历史参照。<br>
     <strong>数据来源：</strong>Tushare（历史）/ AKShare（每日更新），Wind同口径。
   </div>
 
@@ -503,19 +548,6 @@ new Chart(ctx, {{
   }}
 }});
 
-// ── 事件卡片 ─────────────────────────────────────────────
-const grid = document.getElementById('events-grid');
-events.forEach(ev => {{
-  // 找最近日期的实际集中度
-  const idx  = dates.findIndex(d => d >= ev.date);
-  const val  = idx >= 0 ? (values[idx] * 100).toFixed(1) + '%' : '—';
-  grid.innerHTML += `
-    <div class="event-card">
-      <div class="ev-date">${{ev.date}}</div>
-      <div class="ev-label">${{ev.label}}</div>
-      <div class="ev-val">集中度 ≈ ${{val}}</div>
-    </div>`;
-}});
 </script>
 </body>
 </html>"""
