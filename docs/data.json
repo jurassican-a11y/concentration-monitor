@@ -20789,9 +20789,14 @@
       "date": "2026-11-05",
       "value": 0.450869,
       "n_stocks": 0
+    },
+    {
+      "date": "2026-11-06",
+      "value": 0.443802,
+      "n_stocks": 0
     }
   ],
-  "updated_at": "2026-11-05 15:45",
+  "updated_at": "2026-11-06 15:19",
   "warning_line": 0.45,
   "key_events": [
     {
